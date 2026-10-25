@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Coins, Droplets, Gift, Home, RotateCcw, Sparkles, Trophy, Zap } from "lucide-react";
 type Page = "home" | "candy" | "water" | "arcade" | "rewards";
 const COLORS = ["#ff718b","#ffca66","#73d8a2","#78b8ff","#b79aff","#ff9b62"];
-const START = [["#ff718b","#78b8ff","#ffca66","#73d8a2"],["#73d8a2","#ff718b","#b79aff","#78b8ff"],["#78b8ff","#ffca66","#73d8a2","#b79aff"],[],[]];
+const START = [["#ff718b","#78b8ff","#ffca66","#73d8a2"],["#73d8a2","#ff718b","#78b8ff","#ffca66"],["#ffca66","#73d8a2","#ff718b","#78b8ff"],["#78b8ff","#ffca66","#73d8a2","#ff718b"],[],[]];
 const getNum=(key:string)=>{try{return Number(localStorage.getItem(key))||0}catch{return 0}};
 const randomCandy=()=>COLORS[Math.floor(Math.random()*COLORS.length)];
 const makeBoard=()=>Array.from({length:64},randomCandy);
