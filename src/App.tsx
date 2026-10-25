@@ -1,247 +1,52 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, AudioLines, Flame, Heart, HelpCircle, RotateCcw, Share2, Sparkles, Trophy, Zap } from "lucide-react";
-
-const SIZE = 5;
-type Cell = { x: number; y: number };
-type GameState = "ready" | "playing" | "over";
-type Direction = "up" | "down" | "left" | "right";
-
-const same = (a: Cell, b: Cell) => a.x === b.x && a.y === b.y;
-const keyOf = (c: Cell) => `${c.x},${c.y}`;
-const inside = (c: Cell) => c.x >= 0 && c.x < SIZE && c.y >= 0 && c.y < SIZE;
-
-function randomCell(excluded: Cell[] = []): Cell {
-  const options: Cell[] = [];
-  for (let y = 0; y < SIZE; y++) {
-    for (let x = 0; x < SIZE; x++) {
-      const cell = { x, y };
-      if (!excluded.some((other) => same(other, cell))) options.push(cell);
-    }
-  }
-  return options[Math.floor(Math.random() * options.length)] ?? { x: 4, y: 4 };
+import { useEffect, useState } from "react";
+import { ArrowLeft, ArrowRight, Coins, Droplets, Gift, Home, RotateCcw, Sparkles, Trophy, Zap } from "lucide-react";
+type Page = "home" | "candy" | "water" | "arcade" | "rewards";
+const COLORS = ["#ff718b","#ffca66","#73d8a2","#78b8ff","#b79aff","#ff9b62"];
+const START = [["#ff718b","#78b8ff","#ffca66","#73d8a2"],["#73d8a2","#ff718b","#b79aff","#78b8ff"],["#78b8ff","#ffca66","#73d8a2","#b79aff"],[],[]];
+const getNum=(key:string)=>{try{return Number(localStorage.getItem(key))||0}catch{return 0}};
+const randomCandy=()=>COLORS[Math.floor(Math.random()*COLORS.length)];
+const makeBoard=()=>Array.from({length:64},randomCandy);
+function matches(b:string[]){const s=new Set<number>();for(let r=0;r<8;r++)for(let c=0;c<8;c++){const i=r*8+c,v=b[i];if(c<6&&v&&v===b[i+1]&&v===b[i+2]){for(let x=c;x<8&&b[r*8+x]===v;x++)s.add(r*8+x)}if(r<6&&v&&v===b[i+8]&&v===b[i+16]){for(let y=r;y<8&&b[y*8+c]===v;y++)s.add(y*8+c)}}return s}
+function App(){
+ const [page,setPage]=useState<Page>("home"),[points,setPoints]=useState(()=>getNum("playmint-points")),[opened,setOpened]=useState(()=>getNum("playmint-games-opened"));
+ const go=(p:Page)=>{setPage(p);if(["candy","water","arcade"].includes(p)){setOpened(n=>{localStorage.setItem("playmint-games-opened",String(n+1));return n+1})}};
+ const earn=(n:number)=>setPoints(p=>{localStorage.setItem("playmint-points",String(p+n));return p+n});
+ return <div className="app-shell"><header className="topbar"><button className="brand" onClick={()=>go("home")}><span className="brand-mark"><Sparkles size={19}/></span><span>play<span className="brand-mint">mint</span></span></button><nav className="main-nav">{([["home","Home"],["candy","Candy Match"],["water","Water Sort"],["arcade","One More Move"],["rewards","Rewards"]] as [Page,string][]).map(([p,t])=><button key={p} className={page===p?"nav-active":""} onClick={()=>go(p)}>{p==="home"?<Home size={15}/>:p==="candy"?<Sparkles size={15}/>:p==="water"?<Droplets size={15}/>:p==="arcade"?<Zap size={15}/>:<Gift size={15}/>} {t}</button>)}</nav><div className="wallet"><Coins size={17}/><strong>{points.toLocaleString()}</strong><span>PTS</span></div></header>
+ {page==="home"&&<HomePage points={points} opened={opened} go={go}/>}
+ {page==="candy"&&<Candy onPoints={earn} back={()=>go("home")}/>}
+ {page==="water"&&<Water onPoints={earn} back={()=>go("home")}/>}
+ {page==="arcade"&&<Arcade onPoints={earn} back={()=>go("home")}/>}
+ {page==="rewards"&&<Rewards points={points} back={()=>go("home")}/>}
+ <footer className="site-footer"><span>PLAYMINT <i>•</i> PLAY A LITTLE. EARN POINTS.</span><span>DEMO VERSION · REWARDS NOT REDEEMABLE</span></footer></div>
 }
-
-function App() {
-  const [status, setStatus] = useState<GameState>("ready");
-  const [player, setPlayer] = useState<Cell>({ x: 2, y: 2 });
-  const [mint, setMint] = useState<Cell>({ x: 3, y: 2 });
-  const [hazards, setHazards] = useState<Cell[]>([{ x: 0, y: 0 }, { x: 4, y: 4 }]);
-  const [score, setScore] = useState(0);
-  const [best, setBest] = useState(() => Number(localStorage.getItem("playmint-best") || 0));
-  const [turn, setTurn] = useState(0);
-  const [streak, setStreak] = useState(0);
-  const [toast, setToast] = useState("Collect Mints. Don't get caught.");
-  const [showHelp, setShowHelp] = useState(false);
-  const [soundOn, setSoundOn] = useState(false);
-  const touchStart = useRef<{ x: number; y: number } | null>(null);
-
-  const startGame = useCallback(() => {
-    const p = { x: 2, y: 2 };
-    const h1 = { x: 0, y: 0 };
-    const h2 = { x: 4, y: 4 };
-    setPlayer(p);
-    setHazards([h1, h2]);
-    setMint(randomCell([p, h1, h2]));
-    setScore(0);
-    setStreak(0);
-    setTurn(0);
-    setToast("Make your move.");
-    setStatus("playing");
-  }, []);
-
-  const move = useCallback((direction: Direction) => {
-    if (status !== "playing") return;
-    const delta: Record<Direction, Cell> = {
-      up: { x: 0, y: -1 }, down: { x: 0, y: 1 },
-      left: { x: -1, y: 0 }, right: { x: 1, y: 0 },
-    };
-    const d = delta[direction];
-    const next = { x: player.x + d.x, y: player.y + d.y };
-    if (!inside(next)) {
-      setToast("The edge is a wall. Try another move.");
-      return;
-    }
-
-    const nextTurn = turn + 1;
-    const collected = same(next, mint);
-    const nextScore = score + (collected ? 10 + Math.min(streak, 5) * 2 : 0);
-    const nextStreak = collected ? streak + 1 : 0;
-
-    // Every third turn, the hazards move one step closer to the player's last position.
-    const movedHazards = hazards.map((hazard, index) => {
-      if (nextTurn % 3 !== 0) return hazard;
-      const options = [
-        { x: hazard.x + (player.x > hazard.x ? 1 : player.x < hazard.x ? -1 : 0), y: hazard.y },
-        { x: hazard.x, y: hazard.y + (player.y > hazard.y ? 1 : player.y < hazard.y ? -1 : 0) },
-      ].filter((c) => inside(c) && !same(c, next) && !same(c, player));
-      return options.length ? options[index % options.length] : hazard;
-    });
-
-    setPlayer(next);
-    setTurn(nextTurn);
-    setHazards(movedHazards);
-    setScore(nextScore);
-    setStreak(nextStreak);
-
-    const hitHazard = movedHazards.some((h) => same(h, next));
-    if (hitHazard) {
-      setStatus("over");
-      setToast("Oof. The chaos got you.");
-      if (nextScore > best) {
-        setBest(nextScore);
-        localStorage.setItem("playmint-best", String(nextScore));
-      }
-      return;
-    }
-
-    if (collected) {
-      setMint(randomCell([next, ...movedHazards]));
-      setToast(nextStreak > 1 ? `Mint collected! ${nextStreak}× streak!` : "Mint collected! +10");
-    } else {
-      setToast(nextTurn % 3 === 0 ? "Watch out. The hazards are moving." : "Nice. Keep going.");
-    }
-  }, [status, player, turn, mint, score, streak, hazards, best]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const keys: Record<string, Direction> = {
-        ArrowUp: "up", w: "up", W: "up",
-        ArrowDown: "down", s: "down", S: "down",
-        ArrowLeft: "left", a: "left", A: "left",
-        ArrowRight: "right", d: "right", D: "right",
-      };
-      const direction = keys[event.key];
-      if (direction) {
-        event.preventDefault();
-        move(direction);
-      }
-      if (event.key === "Enter" && status !== "playing") startGame();
-      if (event.key === "Escape") setShowHelp(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [move, startGame, status]);
-
-  const shareScore = async () => {
-    const text = `I scored ${score} on PlayMint: One More Move. Think you can beat me? ${window.location.href}`;
-    try {
-      if (navigator.share) await navigator.share({ title: "PlayMint — One More Move", text, url: window.location.href });
-      else if (navigator.clipboard) {
-        await navigator.clipboard.writeText(text);
-        setToast("Challenge copied. Send it to a friend!");
-      } else setToast(text);
-    } catch {
-      setToast("Your challenge is ready to share.");
-    }
-  };
-
-  const onBoardTouchStart = (event: React.TouchEvent) => {
-    const touch = event.touches[0];
-    touchStart.current = { x: touch.clientX, y: touch.clientY };
-  };
-  const onBoardTouchEnd = (event: React.TouchEvent) => {
-    if (!touchStart.current) return;
-    const touch = event.changedTouches[0];
-    const dx = touch.clientX - touchStart.current.x;
-    const dy = touch.clientY - touchStart.current.y;
-    touchStart.current = null;
-    if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) return;
-    move(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up"));
-  };
-
-  const cells = Array.from({ length: SIZE * SIZE }, (_, i) => ({ x: i % SIZE, y: Math.floor(i / SIZE) }));
-
-  return (
-    <main className="app-shell">
-      <header className="topbar">
-        <a className="brand" href="#" aria-label="PlayMint home">
-          <span className="brand-mark"><Sparkles size={18} strokeWidth={2.6} /></span>
-          <span>play<span className="brand-mint">mint</span></span>
-        </a>
-        <div className="top-actions">
-          <button className="icon-button" aria-label="Toggle sound" onClick={() => { setSoundOn(!soundOn); setToast(soundOn ? "Sound off." : "Sound effects coming soon."); }}>
-            <AudioLines size={18} className={soundOn ? "active-icon" : ""} />
-          </button>
-          <button className="icon-button" aria-label="How to play" onClick={() => setShowHelp(!showHelp)}><HelpCircle size={19} /></button>
-        </div>
-      </header>
-
-      <section className="game-layout">
-        <div className="intro">
-          <div className="eyebrow"><span className="live-dot" /> QUICK PLAY <span className="eyebrow-divider">/</span> DAILY ARCADE</div>
-          <h1>One more<br /><span>move.</span></h1>
-          <p className="subtitle">One tiny grid. A growing mess.<br className="desktop-break" /> How long can you stay in the game?</p>
-          <div className="stat-row">
-            <div className="stat-card">
-              <span className="stat-label"><Zap size={13} /> SCORE</span>
-              <strong>{score.toString().padStart(3, "0")}</strong>
-            </div>
-            <div className="stat-card">
-              <span className="stat-label"><Trophy size={13} /> PERSONAL BEST</span>
-              <strong>{best.toString().padStart(3, "0")}</strong>
-            </div>
-            <div className="stat-card stat-streak">
-              <span className="stat-label"><Flame size={13} /> STREAK</span>
-              <strong>{streak}<small>×</small></strong>
-            </div>
-          </div>
-        </div>
-
-        <div className="play-panel">
-          <div className="board-topline">
-            <div><span className="board-label">THE GRID</span><span className="turn-label">TURN {String(turn).padStart(2, "0")}</span></div>
-            <span className="status-pill"><span className={status === "playing" ? "status-dot pulse" : "status-dot"} />{status === "playing" ? "IN PLAY" : status === "over" ? "GAME OVER" : "READY?"}</span>
-          </div>
-
-          <div className={`board-wrap ${status === "over" ? "board-over" : ""}`} onTouchStart={onBoardTouchStart} onTouchEnd={onBoardTouchEnd}>
-            <div className="board" role="grid" aria-label="Game board">
-              {cells.map((cell) => {
-                const isPlayer = same(cell, player);
-                const isMint = same(cell, mint);
-                const hazardIndex = hazards.findIndex((h) => same(h, cell));
-                const isHazard = hazardIndex >= 0;
-                return (
-                  <div key={keyOf(cell)} role="gridcell" className={`cell ${isPlayer ? "cell-player" : ""} ${isMint && status !== "over" ? "cell-mint" : ""} ${isHazard ? "cell-hazard" : ""}`}>
-                    {isPlayer && <span className="player-token"><span /></span>}
-                    {isMint && status !== "over" && <span className="mint-token"><Sparkles size={19} strokeWidth={2.7} /></span>}
-                    {isHazard && <span className="hazard-token"><span /></span>}
-                  </div>
-                );
-              })}
-              {status !== "playing" && (
-                <div className="board-overlay">
-                  {status === "over" ? <><div className="overlay-icon danger-icon"><Flame size={25} /></div><h2>Run over.</h2><p>You scored <b>{score}</b> points.</p><button className="primary-button overlay-button" onClick={startGame}><RotateCcw size={16} /> PLAY AGAIN</button></> : <><div className="overlay-icon"><Sparkles size={25} /></div><h2>Ready when you are.</h2><p>Collect the mint. Dodge the red.</p><button className="primary-button overlay-button" onClick={startGame}><span>START RUN</span><ArrowRight size={16} /></button></>}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="controls">
-            <span className="controls-hint">MOVE</span>
-            <div className="dpad" aria-label="Movement controls">
-              <button className="dpad-button dpad-up" aria-label="Move up" onClick={() => move("up")} disabled={status !== "playing"}><ArrowUp size={18} /></button>
-              <button className="dpad-button dpad-left" aria-label="Move left" onClick={() => move("left")} disabled={status !== "playing"}><ArrowLeft size={18} /></button>
-              <button className="dpad-button dpad-down" aria-label="Move down" onClick={() => move("down")} disabled={status !== "playing"}><ArrowDown size={18} /></button>
-              <button className="dpad-button dpad-right" aria-label="Move right" onClick={() => move("right")} disabled={status !== "playing"}><ArrowRight size={18} /></button>
-            </div>
-            <span className="keyboard-hint">OR USE <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>
-          </div>
-          <div className="toast-line"><span className="toast-spark">✳</span>{toast}</div>
-        </div>
-      </section>
-
-      <section className="bottom-strip">
-        <div className="how-item"><span className="legend-icon mint-legend"><Sparkles size={14} /></span><span><b>Collect Mints</b><small>+10 points per mint</small></span></div>
-        <div className="how-item"><span className="legend-icon hazard-legend"><span /></span><span><b>Avoid the chaos</b><small>Hazards move every 3 turns</small></span></div>
-        <div className="how-item"><span className="legend-icon streak-legend"><Flame size={15} /></span><span><b>Build a streak</b><small>Keep collecting for bonus points</small></span></div>
-        <button className="share-button" onClick={shareScore}><Share2 size={16} /> CHALLENGE A FRIEND</button>
-      </section>
-
-      {showHelp && <div className="modal-backdrop" onClick={() => setShowHelp(false)}><section className="help-modal" onClick={(e) => e.stopPropagation()}><button className="modal-close" onClick={() => setShowHelp(false)}>×</button><div className="eyebrow">THE RULES</div><h2>Easy to learn.<br /><span>Hard to survive.</span></h2><ul><li><Sparkles size={17} /><span>Move around the grid and collect the glowing mint for points.</span></li><li><Flame size={17} /><span>Red hazards move every three turns. Don't step on them.</span></li><li><Heart size={17} /><span>Keep collecting mints to build a streak and earn bonus points.</span></li><li><Trophy size={17} /><span>Your personal best is saved on this device.</span></li></ul><button className="primary-button modal-play" onClick={() => { setShowHelp(false); if (status !== "playing") startGame(); }}>GOT IT <ArrowRight size={16} /></button></section></div>}
-
-      <footer><span>PLAYMINT ARCADE <span className="footer-dot">•</span> BUILD YOUR STREAK</span><span>MADE FOR <b>ONE MORE MOVE.</b></span></footer>
-    </main>
-  );
+function HomePage({points,opened,go}:{points:number;opened:number;go:(p:Page)=>void}){
+ const games:[Page,string,string,string,string][]=[["candy","Candy Match","Match colorful candies, trigger cascades and beat your high score.","🍬","PUZZLE"],["water","Water Sort","Sort every color into its own tube. Plan each move carefully.","🧪","BRAIN TEASER"],["arcade","One More Move","Collect glowing Mints and dodge the chaos for as long as you can.","✳","ARCADE"]];
+ return <main className="home-page"><section className="hero"><div className="hero-copy"><span className="eyebrow"><span className="live-dot"/> YOUR DAILY PLAY BREAK</span><h1>A little play.<br/><span>A lot of mint.</span></h1><p>Pick a game, build your streak, and collect PlayMint points along the way. Your next favorite game is one tap away.</p><button className="primary-button" onClick={()=>go("candy")}>PLAY NOW <ArrowRight size={17}/></button><div className="hero-footnote">✓ Free to play <span>•</span> No sign-up needed for this demo</div></div><div className="hero-art"><div className="art-orbit orbit-one"/><div className="art-orbit orbit-two"/><div className="floating-candy candy-a">✦</div><div className="floating-candy candy-b">●</div><div className="hero-coin"><Sparkles size={54}/><b>mint</b></div><div className="hero-art-label">SMALL MOVES.<br/>SWEET REWARDS.</div></div></section>
+ <section className="stats-band"><div><span className="stat-icon"><Coins size={17}/></span><span><small>YOUR BALANCE</small><strong>{points.toLocaleString()} <em>PTS</em></strong></span></div><div><span className="stat-icon"><Trophy size={17}/></span><span><small>GAMES OPENED</small><strong>{opened}</strong></span></div><div><span className="stat-icon"><Zap size={17}/></span><span><small>GAMES TO EXPLORE</small><strong>03</strong></span></div></section>
+ <section className="section-heading"><div><span className="eyebrow">THE PLAYGROUND</span><h2>Choose your game.</h2></div><span className="section-note">THREE WAYS TO PLAY ↗</span></section><section className="game-cards">{games.map((g,i)=><article className={"game-card "+["pink","blue","green"][i]} key={g[0]}><div className="game-card-top"><span className="game-tag">{g[4]}</span><span className="game-number">0{i+1}</span></div><div className="game-illustration"><span>{g[3]}</span><div className="illustration-dots"><i/><i/><i/><i/></div></div><h3>{g[1]}</h3><p>{g[2]}</p><button className="game-play" onClick={()=>go(g[0])}>PLAY GAME <ArrowRight size={16}/></button></article>)}</section>
+ <section className="rewards-banner"><div className="reward-banner-icon"><Gift size={25}/></div><div><span className="eyebrow">YOUR POINTS, YOUR PROGRESS</span><h2>Every game adds up.</h2><p>Your points are shared across PlayMint. Check out the Rewards page to see demo reward goals.</p></div><button className="secondary-button" onClick={()=>go("rewards")}>VIEW REWARDS <ArrowRight size={16}/></button></section></main>
 }
-
+function Candy({onPoints,back}:{onPoints:(n:number)=>void;back:()=>void}){
+ const [board,setBoard]=useState(makeBoard),[selected,setSelected]=useState<number|null>(null),[score,setScore]=useState(0),[moves,setMoves]=useState(25),[msg,setMsg]=useState("Tap a candy, then an adjacent candy to swap."),[best,setBest]=useState(()=>getNum("playmint-candy-best"));
+ const reset=()=>{setBoard(makeBoard());setSelected(null);setScore(0);setMoves(25);setMsg("New board. Make a match of three or more.")};
+ const tap=(i:number)=>{if(moves<=0)return;if(selected===null){setSelected(i);return}if(i===selected){setSelected(null);return}if(Math.abs(Math.floor(i/8)-Math.floor(selected/8))+Math.abs(i%8-selected%8)!==1){setSelected(i);return}const b=[...board];[b[i],b[selected]]=[b[selected],b[i]];if(!matches(b).size){setSelected(null);setMsg("No match that time — try another swap.");return}const hit=matches(b),gain=hit.size*10;hit.forEach(k=>b[k]="");for(let c=0;c<8;c++){const stack:string[]=[];for(let r=7;r>=0;r--)if(b[r*8+c])stack.push(b[r*8+c]);while(stack.length<8)stack.push(randomCandy());for(let r=7;r>=0;r--)b[r*8+c]=stack[7-r]}setBoard(b);setSelected(null);setMoves(m=>m-1);setScore(s=>{const n=s+gain;if(n>best){setBest(n);localStorage.setItem("playmint-candy-best",String(n))}return n});onPoints(Math.max(1,Math.floor(gain/100)));setMsg("Sweet match! +"+Math.max(1,Math.floor(gain/100))+" PlayMint points earned.")};
+ return <GameFrame back={back} eyebrow="PUZZLE GAME · 01" title="Candy Match." description="Swap adjacent candies to match three or more. Cascades score extra points." restart={reset}><div className="game-workspace candy-workspace"><section className="game-board-card"><div className="board-meta"><span>YOUR BOARD</span><span>{moves} MOVES LEFT</span></div><div className="candy-board">{board.map((c,i)=><button key={i} className={"candy-tile "+(selected===i?"tile-selected":"")} style={{background:c}} onClick={()=>tap(i)} aria-label={"Candy "+(i+1)}><span/></button>)}</div><p className="game-message">{moves===0?"Out of moves! Restart for another round.":msg}</p></section><aside className="game-sidebar"><Metric label="ROUND SCORE" value={score.toLocaleString()}/><Metric label="PERSONAL BEST" value={best.toLocaleString()}/><Tip title="Quick tip">Look for swaps that create a second match after the candies fall. Cascades multiply your score.</Tip></aside></div></GameFrame>
+}
+function Water({onPoints,back}:{onPoints:(n:number)=>void;back:()=>void}){
+ const [tubes,setTubes]=useState(()=>START.map(t=>[...t])),[selected,setSelected]=useState<number|null>(null),[moves,setMoves]=useState(0),[won,setWon]=useState(false),[msg,setMsg]=useState("Select a tube, then pour into another tube.");
+ const reset=()=>{setTubes(START.map(t=>[...t]));setSelected(null);setMoves(0);setWon(false);setMsg("Select a tube, then pour into another tube.")};
+ const pour=(i:number)=>{if(won)return;if(selected===null){if(!tubes[i].length){setMsg("Choose a tube that contains liquid.");return}setSelected(i);return}if(i===selected){setSelected(null);return}const from=tubes[selected],to=tubes[i];if(!from.length||to.length>=4||(to.length&&to[to.length-1]!==from[from.length-1])){setSelected(null);setMsg("Pour only onto the same color or into an empty tube.");return}const next=tubes.map(t=>[...t]),color=next[selected][next[selected].length-1];while(next[selected].length&&next[selected][next[selected].length-1]===color&&next[i].length<4){next[selected].pop();next[i].push(color)}const done=next.every(t=>!t.length||(t.length===4&&t.every(c=>c===t[0])));setTubes(next);setSelected(null);setMoves(m=>m+1);if(done){setWon(true);setMsg("Perfectly sorted! +25 PlayMint points.");onPoints(25)}else setMsg("Nice pour. Keep sorting the colors.")};
+ return <GameFrame back={back} eyebrow="BRAIN TEASER · 02" title="Water Sort." description="Move liquid between tubes until each tube contains just one color." restart={reset}><div className="water-game-card"><div className="water-status"><span>{moves} MOVES</span><span>{won?"LEVEL COMPLETE":"LEVEL 01"}</span></div><div className="tubes-area">{tubes.map((t,i)=><button key={i} className={"tube "+(selected===i?"tube-selected":"")} onClick={()=>pour(i)} aria-label={"Tube "+(i+1)}><span className="tube-liquid">{t.map((c,j)=><i key={j} style={{background:c}}/>)}</span></button>)}</div><p className="game-message">{msg}</p>{won&&<button className="primary-button centered-button" onClick={reset}>PLAY AGAIN <RotateCcw size={15}/></button>}<div className="water-rules"><span>● Same colors only</span><span>● Four units per tube</span><span>● Empty tubes are useful</span></div></div></GameFrame>
+}
+function Arcade({onPoints,back}:{onPoints:(n:number)=>void;back:()=>void}){
+ const [player,setPlayer]=useState(12),[mint,setMint]=useState(8),[hazards,setHazards]=useState([0,24]),[score,setScore]=useState(0),[best,setBest]=useState(()=>getNum("playmint-arcade-best")),[status,setStatus]=useState<"ready"|"playing"|"over">("ready"),[turn,setTurn]=useState(0),[streak,setStreak]=useState(0),[msg,setMsg]=useState("Collect Mints. Don't get caught.");
+ const start=()=>{setPlayer(12);setMint(8);setHazards([0,24]);setScore(0);setTurn(0);setStreak(0);setStatus("playing");setMsg("Make your move.")};
+ const move=(dir:"up"|"down"|"left"|"right")=>{if(status!=="playing")return;const x=player%5,y=Math.floor(player/5),nx=x+(dir==="left"?-1:dir==="right"?1:0),ny=y+(dir==="up"?-1:dir==="down"?1:0);if(nx<0||nx>4||ny<0||ny>4){setMsg("The edge is a wall. Try another move.");return}const next=ny*5+nx,nt=turn+1,collected=next===mint,ns=score+(collected?10+Math.min(streak,5)*2:0),nst=collected?streak+1:0;let hs=[...hazards];if(nt%3===0)hs=hazards.map(h=>{const hx=h%5,hy=Math.floor(h/5),candidates=[hy*5+Math.max(0,Math.min(4,hx+(nx>hx?1:nx<hx?-1:0))),Math.max(0,Math.min(4,hy+(ny>hy?1:ny<hy?-1:0)))*5+hx];return candidates.find(c=>c!==next&&c!==player)??h});setPlayer(next);setTurn(nt);setHazards(hs);setScore(ns);setStreak(nst);if(hs.includes(next)){setStatus("over");setMsg("Oof. The chaos got you.");if(ns>best){setBest(ns);localStorage.setItem("playmint-arcade-best",String(ns))}onPoints(Math.floor(ns/20));return}if(collected){let nm=Math.floor(Math.random()*25);while(nm===next||hs.includes(nm))nm=Math.floor(Math.random()*25);setMint(nm);setMsg("Mint collected! +" +(10+Math.min(streak,5)*2));onPoints(1)}else setMsg(nt%3===0?"Watch out. Hazards are moving.":"Nice. Keep going.")};
+ useEffect(()=>{const f=(e:KeyboardEvent)=>{const m:Record<string,"up"|"down"|"left"|"right">={ArrowUp:"up",w:"up",ArrowDown:"down",s:"down",ArrowLeft:"left",a:"left",ArrowRight:"right",d:"right"};if(m[e.key]){e.preventDefault();move(m[e.key])}};window.addEventListener("keydown",f);return()=>window.removeEventListener("keydown",f)});
+ return <GameFrame back={back} eyebrow="ARCADE GAME · 03" title="One More Move." description="Collect glowing Mints, dodge the red hazards and keep your streak alive." restart={start}><div className="game-workspace"><section className="arcade-card"><div className="board-meta"><span>THE GRID · TURN {turn}</span><span>{status==="playing"?"IN PLAY":status==="over"?"GAME OVER":"READY"}</span></div><div className="arcade-grid">{Array.from({length:25},(_,i)=><button key={i} className={"arcade-cell "+(i===player?"arcade-player ":"")+(i===mint?"arcade-mint ":"")+(hazards.includes(i)?"arcade-hazard":"")} onClick={()=>{const dx=i%5-player%5,dy=Math.floor(i/5)-Math.floor(player/5);if(Math.abs(dx)+Math.abs(dy)===1)move(dx===1?"right":dx===-1?"left":dy===1?"down":"up")}}>{i===player?"◆":i===mint?"✦":hazards.includes(i)?"✹":""}</button>)}</div>{status!=="playing"&&<div className="arcade-overlay"><h2>{status==="over"?"Run over.":"Ready when you are."}</h2><p>{status==="over"?"You scored "+score+" points.":"Collect the mint. Dodge the red."}</p><button className="primary-button" onClick={start}>{status==="over"?"PLAY AGAIN":"START RUN"} <ArrowRight size={15}/></button></div>}<p className="game-message">{msg}</p><div className="arcade-controls"><button onClick={()=>move("up")} disabled={status!=="playing"}>↑</button><div><button onClick={()=>move("left")} disabled={status!=="playing"}>←</button><button onClick={()=>move("down")} disabled={status!=="playing"}>↓</button><button onClick={()=>move("right")} disabled={status!=="playing"}>→</button></div></div></section><aside className="game-sidebar"><Metric label="ROUND SCORE" value={String(score)}/><Metric label="PERSONAL BEST" value={String(best)}/><Metric label="STREAK" value={streak+"×"}/><Tip title="Stay sharp">Hazards move every three turns. Collecting a Mint earns a PlayMint point.</Tip></aside></div></GameFrame>
+}
+function GameFrame({back,eyebrow,title,description,restart,children}:{back:()=>void;eyebrow:string;title:string;description:string;restart:()=>void;children:React.ReactNode}){return <main className="game-page"><button className="back-link" onClick={back}><ArrowLeft size={16}/> BACK TO PLAYGROUND</button><div className="game-page-heading"><div><span className="eyebrow">{eyebrow}</span><h1>{title.split(" ")[0]} <span>{title.split(" ").slice(1).join(" ")}</span></h1><p>{description}</p></div><button className="secondary-button" onClick={restart}><RotateCcw size={15}/> RESTART</button></div>{children}</main>}
+function Metric({label,value}:{label:string;value:string}){return <div className="metric-card"><small>{label}</small><strong>{value}</strong></div>}
+function Tip({title,children}:{title:string;children:React.ReactNode}){return <div className="tip-card"><Sparkles size={18}/><b>{title}</b><p>{children}</p></div>}
+function Rewards({points,back}:{points:number;back:()=>void}){const items=[["🎁","€5 Gift Card",1000],["✨","€10 Gift Card",2000],["🏆","€25 Gift Card",5000]] as [string,string,number][];return <main className="game-page rewards-page"><button className="back-link" onClick={back}><ArrowLeft size={16}/> BACK TO PLAYGROUND</button><div className="rewards-hero"><span className="reward-hero-icon"><Gift size={27}/></span><span className="eyebrow">THE REWARD ROOM</span><h1>Your points.<br/><span>Your next reward.</span></h1><p>Keep playing to build your balance. These are sample reward goals for the PlayMint prototype.</p><div className="rewards-balance"><Coins size={20}/><span><small>AVAILABLE BALANCE</small><strong>{points.toLocaleString()} PTS</strong></span></div></div><section className="section-heading"><div><span className="eyebrow">DEMO REWARDS</span><h2>Pick a goal.</h2></div><span className="section-note">REDEMPTION NOT ACTIVE</span></section><section className="reward-grid">{items.map(([icon,title,cost])=><article className="reward-card" key={title}><div className="reward-emoji">{icon}</div><h3>{title}</h3><p>Sample PlayMint reward goal</p><div className="reward-cost"><Coins size={16}/><strong>{cost.toLocaleString()}</strong><span>PTS</span></div><div className="progress-track"><span style={{width:Math.min(100,points/cost*100)+"%"}}/></div><small className="progress-label">{Math.min(100,Math.floor(points/cost*100))}% of goal</small><button className="secondary-button reward-claim" disabled>COMING SOON</button></article>)}</section><p className="demo-disclaimer">Demo only: rewards are illustrative and cannot currently be claimed or exchanged for cash.</p></main>}
 export default App;
